@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<head>
+<meta charset="UTF-8">
+ <title>Vimeo's Feed</title>
+ <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+<link rel="stylesheet" href="custom.css" />
+</head>
+<body>
+	
+	
+    <div class="container">
+		<div class="row">
+			<div class="col-sm-3">
+				<h1 class="blog-title">Vimeo's feed</h1>
+			</div>
+			<div class="col-sm-9" id="pagination"></div>
+		  </div>
+		  
+		<div class="row" id="content">
+
+		</div>
+		<div class="row">
+			
+		</div>
+	</div>
+<script src="http://code.jquery.com/jquery-1.12.4.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore-min.js"></script>
+<script>
+$(document).ready(function() {
+
+	var VimeoFeed = class {
+	  
+		constructor() {
+			this.data = [];
+			this.filtered = [];
+			this.page = 1;
+			this.paging = {};
+			this.per_page = 10;
+			this.total = 0;
+			this.likesCheck = true;
+		}
+		
+		loadData(){
+			return $.getJSON('vimeoFeed.json');
+		}
+		
+		setData(responseData){
+			let body = JSON.parse(responseData.body);
+			this.data = body.data;
+			this.page = body.page;
+			this.paging = body.paging;
+			this.total = body.total;
+		}
+		
+		get filteredByLikes(){
+			return this.likesCheck;
+		}
+		
+		setFilteredByLikes(value){
+			this.likesCheck = value;
+			this.render();
+		}
+		
+		get feed(){
+			var dataToShow = [];
+		
+			if(this.filtered !== undefined && this.filtered.length !== 0){
+				console.info("Filtered by description");
+				dataToShow = this.filtered;
+			}else{
+
+				var filteredByLikes = this.filteredByLikes;
+				if(filteredByLikes){
+					console.info("Filtered by likes");
+					dataToShow = this.data.filter(function (item) {
+						var likes = item.user.metadata.connections.likes.total;
+						var likeBool = (filteredByLikes) ? likes => 10 : likes < 10;
+						 return likeBool;
+					});
+				}else{
+					console.info("No Filter");
+					dataToShow = this.data;
+				}
+				
+			}
+			
+			
+			var from = (this.page-1) * this.per_page;
+			var to = (from + Number(this.per_page));
+			var show = dataToShow.slice(from, to);
+			console.info("Page: " + this.page + " x " + this.per_page + " items per page = " + this.page*this.per_page + ". Showing from: " + from + " to " + to);
+			console.info(show.length);
+			return show;
+		}
+		
+		perPage(amout){
+			this.per_page = amout;
+			this.render();
+		}
+		
+		renderPagination(){
+			var vimeo = this;
+			var compiled = _.template($("#paginationTemplate").html());
+			$("#pagination").html(compiled({"vimeo": vimeo}));
+		}
+		
+		buildUser(data){
+			let user = {
+					name: data.name,
+					image: (data.pictures !== null) ? data.pictures.sizes[data.pictures.sizes.length -1].link : null, 
+					link: data.link
+				}
+			return user;
+		}
+		
+		buildVideo(data){
+			var infoConnections = data.metadata.connections;
+			let video = {
+				name: data.name,
+				description: data.description,
+				link: data.link,
+				likes: (infoConnections !== undefined) ? infoConnections.likes.total : 0,
+				comments: (infoConnections !== undefined) ? infoConnections.comments.total : 0,
+				plays: data.stats.plays,
+				formatPrettyNumber(num, digits) {
+					let units = ['k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'],
+						decimal;
+
+					for(let i=units.length-1; i>=0; i--) {
+						decimal = Math.pow(1000, i+1);
+
+						if(num <= -decimal || num >= decimal) {
+							return +(num / decimal).toFixed(digits) + units[i];
+						}
+					}
+
+					return num;
+				}
+			}
+			return video;
+		}
+		
+		renderItems(){
+			var vimeo = this;
+			var compiled = _.template($("#itemTemplate").html());
+			var compiledUser = _.template($("#userTemplate").html());
+			var compiledVideo = _.template($("#videoTemplate").html());
+			$("#content").html(compiled({"vimeo": vimeo, "userTemplate": compiledUser, "videoTemplate": compiledVideo}));
+		}
+		
+		render(){
+			console.info("Rendering...");
+			this.renderPagination();
+			this.renderItems();
+		}
+		
+		filterByDesc(text){
+			var filteredByLikes = this.filteredByLikes;
+			var dataFiltered = this.data.filter(function (item) {
+				if(item == undefined || item.description == undefined){
+					return false;
+				}
+				var likes = item.user.metadata.connections.likes.total;
+				var likeBool = (filteredByLikes) ? likes => 10 : likes < 10;
+				return item.description.indexOf(text) > 0 && likeBool;
+			});
+			this.filtered = dataFiltered;
+			this.render();
+		}
+		
+		get pageNumber(){
+			return this.page;
+		}
+		
+		setPageNumber(newPage){
+			this.page = newPage;
+			this.render();
+		}
+		
+	};
+
+	var vimeo = new VimeoFeed(); 
+	vimeo.loadData().then(function(data){
+			vimeo.setData(data);
+			vimeo.render();
+	});
+		
+	$('body').on('change', "#amoutPerPage", function() {
+		vimeo.perPage(this.value);
+	});
+	
+	$('body').on('change', "#likesCheck", function() {
+		vimeo.setFilteredByLikes(document.getElementById("likesCheck").checked);
+	});
+	
+	$('body').on('click', '#filter', function() {
+		vimeo.filterByDesc($("#filterText").val());
+	});
+	
+	$('body').on('click', '#next', function() {
+		vimeo.setPageNumber(vimeo.pageNumber + 1);
+	});
+	
+	$('body').on('click', '#prev', function() {
+		vimeo.setPageNumber(vimeo.pageNumber - 1);
+	});
+
+});
+</script>
+<script type="text/template" id="videoTemplate">
+	<div class="row desc">
+		<div class="row">
+			<a href="<%= video.link %>"><h3><%= video.name %></h3></a>
+		</div>
+		<div class="row stats-box">
+			<svg class="stats" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M1 15V1l14 7"/></svg>
+			<%= video.formatPrettyNumber(video.plays, 1) %>
+			<svg class="stats" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M12 2C9.75 2 8 4 8 4S6.25 2 4 2 0 3.75 0 6c0 4.25 5 4.016 8 8 3-3.984 8-3.75 8-8 0-2.25-1.75-4-4-4z"/></svg>
+			<%= video.formatPrettyNumber(video.likes, 1) %>
+			<svg class="stats" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M12 1H4C1.79 1 0 2.79 0 5v2c0 2.21 1.79 4 4 4h1v4l4-4h3c2.21 0 4-1.79 4-4V5c0-2.21-1.79-4-4-4z"/></svg>
+			<%= video.formatPrettyNumber(video.comments, 1) %>
+		</div>
+		<div class="row desc-box">
+			<p><%= video.description %></p>
+		</div>
+	</div>
+</script>
+<script type="text/template" id="itemTemplate">
+	<% 
+		_.each(vimeo.feed, function(item){ 
+		var user = vimeo.buildUser(item.user);
+		var video = vimeo.buildVideo(item);
+	%>
+	<div class="row feed">
+			<div class="col-sm-1"><%= userTemplate({"user": user}) %></div>
+			<div class="col-sm-11"><%= videoTemplate({"video": video}) %></div>
+	</div>
+	<% }); %>
+</script>
+<script type="text/template" id="paginationTemplate">
+<nav>
+<div class="col-sm-3">
+	<label>Show:</label>
+  <select id="amoutPerPage" class="form-control">		  
+			<option <%= (vimeo.per_page == 10) ? "selected='selected'" : "" %>>10</option>
+			<option <%= (vimeo.per_page == 25) ? "selected='selected'" : "" %>>25</option>
+			<option <%= (vimeo.per_page == 50) ? "selected='selected'" : "" %>>50</option>
+  </select>
+  </div>
+  <div class="col-sm-3 form-inline">
+  <label>Filter:</label><br/>
+  <input type="text"  class="form-control" id="filterText" class="left" style="width:80%"/><input type="button"  id="filter" value="Go" class="filter" />
+  </div>
+  <div class="col-sm-3">
+  <label>More than 10 likes</label><input type="checkbox" id="likesCheck" class="form-control" <%= (vimeo.likesCheck) ? "checked='checked'" : "" %>> <br>
+  </div>
+  
+  <ul class="pager">
+	<% if(vimeo.page > 1){ %>
+    <li><a href="#" id="prev">Previous</a></li>
+	<% } %>
+	<% if((vimeo.page * vimeo.per_page) < vimeo.data.length){ %>
+    <li><a href="#" id="next">Next</a></li>
+	<% } %>
+  </ul>
+</nav>
+</script>
+<script type="text/template" id="userTemplate">
+    <div class="info">
+	<a href="<%= user.link%>">
+		<% if(user.image !== null){ %>
+			<img alt="" src="<%= user.image %>" class=" avatar img-circle">
+		<% }else{ %>
+			<img alt="" src="http://blog.ramboll.com/fehmarnbelt/wp-content/themes/ramboll2/images/profile-img.jpg" class=" avatar img-circle">
+		<% } %>
+    </a>
+	<div class="title"><a href="<%= user.link%>"><%= user.name %></a></div>
+	</div>
+</script>
+</body>
+</html>
